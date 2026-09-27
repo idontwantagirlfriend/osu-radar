@@ -10,3 +10,8 @@ frontend/node_modules/
 __pycache__
 tosu/
 .env
+# 打包材料与产物（不入库）
+tosu-windows-*.zip
+tosu-linux-*.zip
+tosu-master.zip
+release/
