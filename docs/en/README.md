@@ -10,19 +10,19 @@ A simple conditional-probability model that estimates where a player's aim lands
 
 The estimate is meant to be read like this:
 
-> **On maps with effective AR = x, when the map's CS is y, the player will reach n% of the objects** (pooled by AR)
+> **On maps with effective AR = x and SR = y, when the map's CS is z, the player will reach n% of the objects** (pooled by AR and SR)
 >
-> **On maps with CS = y, the player will reach n% of the objects** (pooled by CS)
+> **On maps with CS = z and SR = y, the player will reach n% of the objects** (pooled by CS and SR)
 
-"Reaching" an object means the cursor was still inside that object's hit circle at that object's hit time. tosu is used to read the map currently loaded in osu!, which is what fills in x and y for you — in live mode the overlay follows whatever you are playing, applies the active mods, and updates itself.
+"Reaching" an object means the cursor was still inside that object's hit circle at that object's hit time. tosu is used to read the map currently loaded in osu!, which is what fills in x, y and z for you — in live mode the overlay follows whatever you are playing, applies the active mods, and updates itself.
 
 - Samples are weighted per object, so a long map simply contributes more of them.
-- EZ/HR/DT/HT are folded into *effective* CS/AR first (a rate change shifts AR by scaling the approach time), so plays are pooled by the difficulty you actually faced rather than by the map's base difficulty.
+- EZ/HR/DT/HT are folded into *effective* CS/AR first (a rate change shifts AR by scaling the approach time), so plays are pooled by the difficulty you actually faced rather than by the map's base difficulty. SR is the actual post-mod star rating, computed locally with rosu-pp.
 - These are statistical conclusions only: n% is an expected value, and no average promises anything about any single play.
 
 ## Installation
 
-The software depends on [osu!stable](https://osu.ppy.sh/home/download) and [tosu](https://github.com/tosuapp/tosu), and nothing else — the backend is pure Python standard library (the Vue frontend ships prebuilt in `frontend/dist`). If `frontend/dist` is ever missing: `cd frontend && npm install && npm run build`.
+The software depends on [osu!stable](https://osu.ppy.sh/home/download) and [tosu](https://github.com/tosuapp/tosu). The backend is Python plus [rosu-pp-py](https://pypi.org/project/rosu-pp-py/) for post-mod star ratings; the Vue frontend ships prebuilt in `frontend/dist`. If `frontend/dist` is ever missing: `cd frontend && npm install && npm run build`.
 
 osu!lazer does not necessarily expose its internal replays, so porting to it is not worth attempting.
 
@@ -39,7 +39,7 @@ Once configured:
 
 - `/` — configuration (paths, grade colors, grade artwork)
 - `/debug` — the radar dashboard: pick the AR or CS dimension, slide along the buckets, filter by player / mods / time window
-- `/ar` and `/cs` — the OBS overlays; every option is a query parameter (`?since=6m&player=&mods=HD,DT&no_mods=EZ&min_objects=10&theme=dark`)
+- `/ar` and `/cs` — the OBS overlays; every option is a query parameter (`?since=6m&player=&mods=HD,DT&no_mods=EZ&min_objects=10&sr_range=0.5&theme=dark`)
 
 ## Privacy
 
@@ -66,6 +66,10 @@ And by restricting the past replays to a band of AR or CS, you get the aim offse
 > **On maps with effective AR = x, when the map's CS is y, the player will reach n% of the objects** (pooled by AR)
 >
 > **On maps with CS = y, the player will reach n% of the objects** (pooled by CS)
+
+**Adding SR as a variable**
+
+**On top of the AR/CS pooling, the past replays are further restricted to maps whose post-mod SR is within ±0.5★ of the current map**: modern maps cluster around AR 9–10 and CS 4–5, so AR/CS alone cannot capture how much the map's placement demands — the AR 9.8–10 ceiling spans everything from 7★ to 10★, and estimating one and the same rank across all of it is plainly unreasonable.
 
 ## Reading the radar
 

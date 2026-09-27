@@ -2,6 +2,8 @@
 name = "osu-radar"
 version = "0.1.0"
 description = "osu! aim offset profiler: AR/CS-bucketed cursor offset distributions from replays"
-requires-python = ">=3.10"
-# 零第三方依赖（requirements.txt 同样为空）；此文件的作用是让 uv run 自动管理 .venv
-dependencies = []
+requires-python = ">=3.11"
+# rosu-pp >= 4.0：2025-10 官方难度/PP 算法重做的实现，与 tosu 内置版本同代
+dependencies = [
+    "rosu-pp-py>=4.0.2",
+]

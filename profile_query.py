@@ -40,7 +40,8 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "osu_
 DEFAULT_PERCENTILES = (50, 75, 90, 95, 99, 99.9)
 
 
-def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None):
+def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None,
+           sr_center=None, sr_range=0.5):
     """Build SQL filter for replays joined into offset_hist."""
     conds = ["r.status = 'ok'"]
     params = []
@@ -59,12 +60,16 @@ def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None):
     if cutoff:
         conds.append("r.played_at >= ?")
         params.append(cutoff)
+    if sr_center is not None and sr_range:
+        # mod 星数过滤（rosu-pp，与 live 的 tosu stars 同代算法）
+        conds.append("r.sr_mod IS NOT NULL AND r.sr_mod BETWEEN ? AND ?")
+        params += [sr_center - sr_range, sr_center + sr_range]
     return " AND ".join(conds), params
 
 
 def query_profile(model, value, bucket=0.5, percentiles=DEFAULT_PERCENTILES,
                   player=None, mods=None, no_mods=None, min_objects=0,
-                  since="6m", db_path=DB_PATH):
+                  since="6m", sr=None, sr_range=0.5, db_path=DB_PATH):
     """Merged weighted percentiles for one AR/CS bucket.
 
     Returns dict: {model, value, bucket, n_replays, n_objects,
@@ -73,7 +78,7 @@ def query_profile(model, value, bucket=0.5, percentiles=DEFAULT_PERCENTILES,
     col = "ar" if model == "ar" else "cs"
     lo, hi = value - bucket / 2, value + bucket / 2
     cutoff = since_cutoff(since)
-    where, params = _where(player, mods, no_mods, min_objects, cutoff)
+    where, params = _where(player, mods, no_mods, min_objects, cutoff, sr, sr_range)
     con = sqlite3.connect(db_path)
     rows = con.execute(
         f"SELECT h.{col}, h.bins, h.n_objects FROM offset_hist h"
@@ -95,11 +100,11 @@ def query_profile(model, value, bucket=0.5, percentiles=DEFAULT_PERCENTILES,
 
 
 def list_buckets(model, bucket=0.5, player=None, mods=None, no_mods=None,
-                 min_objects=0, since="6m", db_path=DB_PATH):
+                 min_objects=0, since="6m", sr=None, sr_range=0.5, db_path=DB_PATH):
     """All buckets with replay/object weights (before merging)."""
     col = "ar" if model == "ar" else "cs"
     cutoff = since_cutoff(since)
-    where, params = _where(player, mods, no_mods, min_objects, cutoff)
+    where, params = _where(player, mods, no_mods, min_objects, cutoff, sr, sr_range)
     con = sqlite3.connect(db_path)
     rows = con.execute(
         f"SELECT CAST(ROUND(h.{col} / {bucket}) AS INTEGER), COUNT(*), SUM(h.n_objects)"
@@ -134,6 +139,9 @@ def main():
     ap.add_argument("--min-objects", type=int, default=0)
     ap.add_argument("--since", default="6m",
                     help="time window: 30d / 6m / 1y / all (default 6m; early replays excluded)")
+    ap.add_argument("--sr", type=float, help="mod 星数过滤中心（rosu-pp 带 mods）")
+    ap.add_argument("--sr-range", type=float, default=0.5,
+                    help="mod 星数过滤半径（默认 0.5；0 关闭）")
     ap.add_argument("--list", action="store_true", help="list all buckets with weights")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -154,7 +162,8 @@ def main():
         ap.error("--value is required (or use --list)")
 
     q = query_profile(args.model, args.value, args.bucket, percentiles,
-                      args.player, mods, no_mods, args.min_objects, args.since)
+                      args.player, mods, no_mods, args.min_objects, args.since,
+                      args.sr, args.sr_range)
     if q is None:
         print("no data for this query")
         return

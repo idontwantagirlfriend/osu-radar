@@ -17,6 +17,7 @@ const cfg = {
   mods: q.get("mods") || "",              // 只含 mods，默认不过滤
   no_mods: q.get("no_mods") || "",        // 排除 mods，默认不过滤
   min_objects: q.get("min_objects") || "10", // 最少 object 数，默认 10
+  sr_range: q.get("sr_range") || "0.5",      // mod 星数过滤半径（±SR★），0 关闭
 }
 const themeClass = q.get("theme") === "light" ? "overlay-light" : "overlay-dark"
 

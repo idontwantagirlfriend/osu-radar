@@ -106,10 +106,14 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_hist_ar ON offset_hist(ar);
     CREATE INDEX IF NOT EXISTS idx_hist_cs ON offset_hist(cs);
     """)
-    # migration for DBs created before played_at existed
+    # migrations
     cols = {r[1] for r in con.execute("PRAGMA table_info(replays)")}
     if "played_at" not in cols:
         con.execute("ALTER TABLE replays ADD COLUMN played_at TEXT")
+    if "sr_mod" not in cols:
+        con.execute("ALTER TABLE replays ADD COLUMN sr_mod REAL")      # rosu-pp 带 mods 星数
+    if "mods_bits" not in cols:
+        con.execute("ALTER TABLE replays ADD COLUMN mods_bits INTEGER")
     con.commit()
     return con
 
@@ -130,6 +134,55 @@ def backfill_played_at(con):
     return n
 
 # ---------------------------------------------------------------- beatmap index
+
+def _save_index(stat, maps, roots):
+    """原子写：先写临时文件再替换，避免 server 并发读到半截 JSON。"""
+    tmp = INDEX_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"stat": stat, "maps": maps, "roots": roots}, f)
+    os.replace(tmp, INDEX_PATH)
+
+
+def _incremental_update(roots, old_roots, stat, maps):
+    """按根目录一级条目做增删：新增条目只扫它自己；消失条目按路径前缀摘除。
+    就地更新（同文件夹内 .osu 被 mapper 替换）检测不到——由 replay 找不到图时的
+    force 全量重建兜底。返回新哈希的文件数。"""
+    hashed = 0
+    for d, cur in roots.items():
+        old = set(old_roots.get(d, []))
+        now = set(cur)
+        # 消失的条目：摘除 maps / stat 中以该路径为前缀的条目
+        for name in old - now:
+            gone = os.path.join(d, name)
+            pre = gone + os.sep
+            for m in [m for m, p in maps.items() if p == gone or p.startswith(pre)]:
+                del maps[m]
+            for p in [p for p in stat if p == gone or p.startswith(pre)]:
+                del stat[p]
+        # 新增的条目：只扫这些路径
+        files = []
+        for name in now - old:
+            p = os.path.join(d, name)
+            if os.path.isdir(p):
+                for dp, _, ns in os.walk(p):
+                    files += [os.path.join(dp, n) for n in ns
+                              if n.lower().endswith(".osu")]
+            elif name.lower().endswith(".osu"):
+                files.append(p)
+        for p in files:
+            try:
+                st = os.stat(p)
+                with open(p, "rb") as f:
+                    md5 = hashlib.md5(f.read()).hexdigest()
+            except OSError:
+                continue
+            stat[p] = [st.st_size, int(st.st_mtime), md5]
+            old_path = maps.get(md5)
+            if old_path is None or not os.path.exists(old_path):
+                maps[md5] = p  # 已有有效路径（同内容重复文件夹）则不覆盖
+            hashed += 1
+    return hashed
+
 
 def build_beatmap_index(force=False):
     """md5 -> path for every .osu under SONGS_DIRS.
@@ -156,8 +209,13 @@ def build_beatmap_index(force=False):
                 roots[d] = sorted(os.listdir(d))
             except OSError:
                 pass
-        if maps and roots and old_roots and roots == old_roots:
-            return maps, 0, 0, True  # quick：根未变，跳过全量扫描
+        if maps and roots and old_roots:
+            if roots == old_roots:
+                return maps, 0, 0, True  # quick：根未变，跳过全量扫描
+            # 文件夹级增量：只扫新增的条目、只摘除消失的条目（成本 O(变化量)）
+            hashed = _incremental_update(roots, old_roots, stat, maps)
+            _save_index(stat, maps, roots)
+            return maps, 0, hashed, False
 
     files = []
     for d in SONGS_DIRS:
@@ -168,26 +226,28 @@ def build_beatmap_index(force=False):
                 if n.lower().endswith(".osu"):
                     files.append(os.path.join(dirpath, n))
 
-    new_maps, hashed = {}, 0
+    # 全量重建：maps 从零构建（删除的真正消失，损坏可自愈）。
+    # stat 缓存条目为 [size, mtime, md5]：命中则免读文件。
+    maps, hashed = {}, 0
     for p in files:
         try:
             st = os.stat(p)
         except OSError:
             continue
-        key = (st.st_size, int(st.st_mtime))
-        if tuple(stat.get(p, ())) == key:  # JSON round-trips tuples as lists
+        key = [st.st_size, int(st.st_mtime)]
+        entry = stat.get(p)
+        if entry and entry[:2] == key and len(entry) == 3:
+            maps[entry[2]] = p  # 缓存命中（旧 2 元组条目视为未命中，重哈希一次）
             continue
         try:
             with open(p, "rb") as f:
                 md5 = hashlib.md5(f.read()).hexdigest()
         except OSError:
             continue
-        stat[p] = key
-        new_maps[md5] = p
+        stat[p] = key + [md5]
+        maps[md5] = p
         hashed += 1
 
-    # rebuild md5->path: start from scratch so deleted files disappear
-    maps.update(new_maps)
     if not roots or force:
         for d in SONGS_DIRS:
             if os.path.isdir(d):
@@ -195,8 +255,7 @@ def build_beatmap_index(force=False):
                     roots[d] = sorted(os.listdir(d))
                 except OSError:
                     pass
-    with open(INDEX_PATH, "w") as f:
-        json.dump({"stat": stat, "maps": maps, "roots": roots}, f)
+    _save_index(stat, maps, roots)
     return maps, len(files), hashed, False
 
 # ---------------------------------------------------------------- beatmap cache
@@ -320,6 +379,9 @@ def analyze_pending(con, index, limit=None, index_quick=False):
             continue
 
         mods = decode_mods(rep["mods"])
+        from sr import sr_for
+        bm_path = index.get(bm_md5)
+        sr_mod = sr_for(bm_path, rep["mods"]) if bm_path else None
         result = compute_offsets(rep, bm, mods)
         offsets = result["offsets"]
         if len(offsets) < 10:
@@ -334,15 +396,16 @@ def analyze_pending(con, index, limit=None, index_quick=False):
         cur.execute(
             "INSERT OR IGNORE INTO replays(filename, replay_md5, beatmap_md5, player, mods,"
             " base_ar, base_cs, eff_ar, eff_cs, n_objects, percentiles, status, note,"
-            " analyzed_at, played_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " analyzed_at, played_at, sr_mod, mods_bits)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (fname, md5, bm_md5, rep.get("player", ""),
              "+".join(sorted(mods)),
              bm.approach_rate, bm.circle_size,
              result["eff_ar"], result["eff_cs"],
              len(offsets), json.dumps(pct), "ok", "",
              time.strftime("%Y-%m-%d %H:%M:%S"),
-             ticks_to_iso(rep.get("timestamp"))))
+             ticks_to_iso(rep.get("timestamp")),
+             sr_mod, rep.get("mods", 0)))
         rid = cur.lastrowid
         cur.execute("INSERT OR REPLACE INTO offset_hist(replay_id, ar, cs, n_objects, bins)"
                     " VALUES(?,?,?,?,?)",

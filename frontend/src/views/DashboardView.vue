@@ -38,6 +38,7 @@ async function pollLive() {
     no_mods: noMods.value,
     min_objects: String(minObjects.value),
     since: since.value,
+    sr_range: "0.5",
   })
   try {
     const r = await fetch(`/api/live?${p}`)

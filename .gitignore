@@ -1,7 +1,10 @@
+# Runtime files
 r/
 data/
 frontend/node_modules/
+.pid
 
+# Dev files
 .venv
 .claude
 __pycache__

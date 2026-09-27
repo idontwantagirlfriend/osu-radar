@@ -10,19 +10,31 @@
 
 估计结果可以这样表述：
 
-> **在ar=x的图上，当地图为cs y时，玩家将能aim到n%的object**（按ar合计）
+> **在ar=x、sr=y的图上，当地图为cs z时，玩家将能aim到n%的object**（按ar、sr合计）
 >
-> **在cs=y的图上，玩家将能aim到n%的object**（按cs合计）
+> **在cs=z、sr=y的图上，玩家将能aim到n%的object**（按cs、sr合计）
 
 借助tosu读取图的四维来确定输入的x和y。
 
 - 按object加权：长谱面贡献更多样本
-- EZ/HR/DT先折算为等效CS/AR
+- EZ/HR/DT先折算为等效CS/AR，SR用rosu-pp算实际值
 - 这只是统计结论：n%是期望值，统计结论不能保证单例的情况
 
 ## 安装
 
-本软件依赖[osu!stable](https://osu.ppy.sh/home/download)和[tosu](https://github.com/tosuapp/tosu)，除此之外无第三方依赖。
+本软件依赖[osu!stable](https://osu.ppy.sh/home/download)和[tosu](https://github.com/tosuapp/tosu)。
+
+直接运行：
+
+```sh
+sh start.sh start
+```
+
+Windows运行：
+
+```powershell
+./start.ps1 start
+```
 
 lazer不一定暴露内部replay因此迁移无望。
 
@@ -51,3 +63,7 @@ lazer不一定暴露内部replay因此迁移无望。
 > **在ar=x的图上，当地图为cs y时，玩家将能aim到n%的object**（按ar合计）
 >
 > **在cs=y的图上，玩家将能aim到n%的object**（按cs合计）
+
+**加入sr变量**
+
+**在根据ar/cs统计的基础上，再按mod后sr ±0.5*选取接近的难度**：由于现代图ar集中在9-10，cs一般4-5，仅根据ar/cs无法评估图摆放难度的影响：例如，ar9.8-10这个天花板范围从7到10星都有，估测rank都一样显然不合理。

@@ -18,7 +18,7 @@ data/osu_radar.db:
   POST /api/icons/{s|a|b|c|d}  (raw image body) -> 覆盖 assets/ 中的 rank 贴图
   GET  /assets/<file> -> 项目根 assets/ 优先（运行时可替换），回退 frontend/dist
 
-usage: python3 server.py [--port 8000] [--host 127.0.0.1] [--no-browser]
+usage: python3 server.py [--port 25431] [--host 127.0.0.1] [--no-browser]
 """
 import argparse
 import json
@@ -226,15 +226,18 @@ def kick_ingest():
         if _INGEST_PROC[0] is not None and _INGEST_PROC[0].poll() is None:
             return False
         try:
+            log = open(os.path.join(ROOT, "data", "ingest.log"), "ab")
             _INGEST_PROC[0] = subprocess.Popen(
-                [sys.executable, os.path.join(ROOT, "ingest.py")], cwd=ROOT)
+                [sys.executable, os.path.join(ROOT, "ingest.py")], cwd=ROOT,
+                stdout=log, stderr=subprocess.STDOUT)
             return True
         except OSError:
             return False
 
 # ---------------------------------------------------------------- db queries
 
-def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None):
+def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None,
+           sr_center=None, sr_range=0.5):
     conds = ["r.status = 'ok'"]
     params = []
     if player:
@@ -252,12 +255,17 @@ def _where(player=None, mods=None, no_mods=None, min_objects=0, cutoff=None):
     if cutoff:
         conds.append("r.played_at >= ?")
         params.append(cutoff)
+    if sr_center is not None and sr_range:
+        conds.append("r.sr_mod IS NOT NULL AND r.sr_mod BETWEEN ? AND ?")
+        params += [sr_center - sr_range, sr_center + sr_range]
     return " AND ".join(conds), params
 
 
-def query_buckets(model, bucket, player=None, mods=None, no_mods=None, min_objects=0, since="6m"):
+def query_buckets(model, bucket, player=None, mods=None, no_mods=None, min_objects=0,
+                  since="6m", sr=None, sr_range=1.0):
     col = "ar" if model == "ar" else "cs"
-    where, params = _where(player, mods, no_mods, min_objects, since_cutoff(since))
+    where, params = _where(player, mods, no_mods, min_objects, since_cutoff(since),
+                           sr, sr_range)
     con = sqlite3.connect(DB_PATH)
     rows = con.execute(
         f"SELECT CAST(ROUND(h.{col} / ?) AS INTEGER), COUNT(*), SUM(h.n_objects)"
@@ -269,10 +277,11 @@ def query_buckets(model, bucket, player=None, mods=None, no_mods=None, min_objec
 
 
 def query_profile(model, value, bucket, player=None, mods=None, no_mods=None, min_objects=0,
-                  since="6m"):
+                  since="6m", sr=None, sr_range=1.0):
     col = "ar" if model == "ar" else "cs"
     lo, hi = value - bucket / 2, value + bucket / 2
-    where, params = _where(player, mods, no_mods, min_objects, since_cutoff(since))
+    where, params = _where(player, mods, no_mods, min_objects, since_cutoff(since),
+                           sr, sr_range)
     con = sqlite3.connect(DB_PATH)
     rows = con.execute(
         f"SELECT h.{col}, h.bins, h.n_objects FROM offset_hist h"
@@ -320,15 +329,19 @@ def _tosu_url():
                     _TOSU_FAIL_AT[0] = time.time()
     return _TOSU_CACHE[0] or ""
 
+def _index_path(md5):
+    try:
+        with open(INDEX_PATH) as f:
+            return json.load(f)["maps"].get(md5)
+    except Exception:
+        return None
+
+
 def _base_stats(md5):
     """base AR/CS from the local Songs index (consistent with the DB pipeline)."""
     if md5 in _STATS_CACHE:
         return _STATS_CACHE[md5]
-    try:
-        with open(INDEX_PATH) as f:
-            path = json.load(f)["maps"].get(md5)
-    except Exception:
-        path = None
+    path = _index_path(md5)
     if not path:
         return None
     try:
@@ -355,7 +368,7 @@ def grade_prediction(hist, cs_eff):
     return predicted, grades
 
 def query_live(model="ar", bucket=0.5, player=None, mods=None, no_mods=None,
-               min_objects=0, since="6m"):
+               min_objects=0, since="6m", sr_range=0.5):
     """Current map from tosu -> effective AR/CS -> profile + grade prediction."""
     import urllib.request
     url = _tosu_url()
@@ -393,9 +406,17 @@ def query_live(model="ar", bucket=0.5, player=None, mods=None, no_mods=None,
     else:
         return {"error": "no beatmap info from tosu"}, 502
 
+    # 当前图的 mod 星数：本地 rosu-pp 计算（与批量 sr_mod 同一代码路径，口径必然一致；
+    # tosu 的 stats.stars.total 实测不可靠——不同图返回相同陈旧值，疑似 nomod 名义值）
+    cur_sr = None
+    if md5:
+        path = _index_path(md5)
+        if path:
+            from sr import sr_for
+            cur_sr = sr_for(path, mods_num)
     mode_value = eff_ar if model == "ar" else eff_cs
     prof = query_profile(model, round(mode_value / bucket) * bucket, bucket,
-                         player, mods, no_mods, min_objects, since)
+                         player, mods, no_mods, min_objects, since, cur_sr, sr_range)
     out = {
         "tosu": url,
         "state": state,
@@ -407,6 +428,8 @@ def query_live(model="ar", bucket=0.5, player=None, mods=None, no_mods=None,
             "eff_ar": eff_ar, "eff_cs": eff_cs,
         },
         "mods": sorted(mods_set),
+        "sr": cur_sr,
+        "sr_range": sr_range,
         "stats_source": source,
         "profile": prof,  # may be None (no data at this bucket)
         "focus_cs": eff_cs,
@@ -444,7 +467,15 @@ class Handler(BaseHTTPRequestHandler):
             min_objects = int(q.get("min_objects", ["0"])[0])
         except ValueError:
             min_objects = 0
-        return player, mods, no_mods, min_objects, since
+        try:
+            sr = float(q.get("sr", [""])[0]) if q.get("sr", [""])[0] else None
+        except ValueError:
+            sr = None
+        try:
+            sr_range = float(q.get("sr_range", ["0.5"])[0])
+        except ValueError:
+            sr_range = 0.5
+        return player, mods, no_mods, min_objects, since, sr, sr_range
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -456,18 +487,18 @@ class Handler(BaseHTTPRequestHandler):
                 if model not in ("ar", "cs"):
                     return self._send_json({"error": "model must be ar|cs"}, 400)
                 bucket = float(q.get("bucket", ["0.5"])[0])
-                player, mods, no_mods, min_objects, since = self._filters(q)
+                player, mods, no_mods, min_objects, since, sr, sr_range = self._filters(q)
                 return self._send_json(query_buckets(model, bucket, player, mods, no_mods,
-                                                     min_objects, since))
+                                                     min_objects, since, sr, sr_range))
 
             if url.path == "/api/live":
                 model = q.get("model", ["ar"])[0]
                 if model not in ("ar", "cs"):
                     return self._send_json({"error": "model must be ar|cs"}, 400)
                 bucket = float(q.get("bucket", ["0.5"])[0])
-                player, mods, no_mods, min_objects, since = self._filters(q)
+                player, mods, no_mods, min_objects, since, _sr, sr_range = self._filters(q)
                 out, status = query_live(model, bucket, player, mods, no_mods,
-                                         min_objects, since)
+                                         min_objects, since, sr_range)
                 return self._send_json(out, status)
 
             if url.path == "/api/profile":
@@ -479,8 +510,9 @@ class Handler(BaseHTTPRequestHandler):
                     bucket = float(q.get("bucket", ["0.5"])[0])
                 except ValueError:
                     return self._send_json({"error": "value/bucket must be numeric"}, 400)
-                player, mods, no_mods, min_objects, since = self._filters(q)
-                out = query_profile(model, value, bucket, player, mods, no_mods, min_objects, since)
+                player, mods, no_mods, min_objects, since, sr, sr_range = self._filters(q)
+                out = query_profile(model, value, bucket, player, mods, no_mods, min_objects,
+                                    since, sr, sr_range)
                 if out is None:
                     return self._send_json({"error": "no data for this query"}, 404)
                 return self._send_json(out)
@@ -611,17 +643,85 @@ def _open_browser(url):
         pass
 
 
+PID_FILE = os.path.join(ROOT, "data", "server.pid")
+PORT_ATTEMPTS = 10  # 首选端口被占用则依次 +1，最多尝试 10 个
+
+
+def bind_server(host, preferred):
+    """在 preferred..preferred+9 里找第一个空闲端口绑定。"""
+    last_err = None
+    for port in range(preferred, preferred + PORT_ATTEMPTS):
+        try:
+            return ThreadingHTTPServer((host, port), Handler), port
+        except OSError as e:
+            last_err = e
+    raise SystemExit(f"端口 {preferred}~{preferred + PORT_ATTEMPTS - 1} 均被占用: {last_err}")
+
+
+def _remove_pid_file():
+    try:
+        with open(PID_FILE) as f:
+            if f.read().split()[0] == str(os.getpid()):  # 只删自己写的
+                os.remove(PID_FILE)
+    except (OSError, ValueError, IndexError):
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, default=None,
+                    help="显式指定端口（占用即报错）；缺省用 $PORT 或 25431，占用自动顺延 +1")
     ap.add_argument("--no-browser", action="store_true",
                     help="启动后不自动打开浏览器（同 NO_BROWSER=1）")
     args = ap.parse_args()
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    url = f"http://{args.host}:{args.port}/"
-    print(f"osu-radar: {url}  (dist: {DIST_DIR})")
+
+    preferred = int(os.environ.get("PORT") or 25431)
+    if args.port is not None:
+        srv = ThreadingHTTPServer((args.host, args.port), Handler)
+        port = args.port
+    else:
+        srv, port = bind_server(args.host, preferred)
+
+    # 记录 PID + 实际端口；Ctrl+C / SIGTERM / 正常退出统一走 teardown：
+    # 删自己的 .pid + 停掉本工具拉起的 tosu（用户自启的实例不动）
+    os.makedirs(os.path.dirname(PID_FILE), exist_ok=True)
+    with open(PID_FILE, "w") as f:
+        f.write(f"{os.getpid()} {port}\n")
+    import atexit
+    import signal
+
+    def _shutdown():
+        _remove_pid_file()
+        try:
+            import tosu_ctl
+            tosu_ctl.stop()
+        except Exception:
+            pass
+
+    atexit.register(_shutdown)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: sys.exit(0))  # 交给 atexit 统一 teardown
+
+    # 周期增量入库：运行中新打完的图也会自动进模型（快路径下每轮仅数秒；
+    # INGEST_INTERVAL 秒数可调，0 关闭）
+    interval = float(os.environ.get("INGEST_INTERVAL") or 60)
+    if interval > 0:
+
+        def _ingest_loop():
+            while True:
+                time.sleep(interval)
+                kick_ingest()
+
+        threading.Thread(target=_ingest_loop, daemon=True).start()
+
+    url = f"http://{args.host}:{port}/"
+    # 仿 uvicorn 启动通告
+    print(f"INFO:     Started server process [{os.getpid()}]")
+    if port != preferred:
+        print(f"INFO:     port {preferred} in use, falling back to {port}")
+    print(f"INFO:     osu-radar running on {url} (Press CTRL+C to quit)")
     if os.environ.get("NO_BROWSER") != "1" and not args.no_browser:
         threading.Timer(0.5, lambda: _open_browser(url)).start()
     srv.serve_forever()

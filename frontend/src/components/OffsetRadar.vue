@@ -194,6 +194,16 @@ function draw() {
   ctx.fillText("0px", CX, CY - 12)
   if (!rings) return
 
+  // ---- 右下角：估算基数（参与统计的 replay / object 数） ----
+  ctx.font = "21px system-ui, sans-serif"
+  ctx.fillStyle = mutedColor
+  ctx.textAlign = "right"
+  ctx.textBaseline = "alphabetic"
+  ctx.globalAlpha = 0.45
+  ctx.fillText(`${props.profile.n_replays} replays`, W - 16, H - 36)
+  ctx.fillText(`${props.profile.n_objects.toLocaleString()} objects`, W - 16, H - 10)
+  ctx.globalAlpha = 1
+
   // ---- 色环：连续色变填充（D→S 由径向渐变连续过渡，无分段描边） ----
   const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, R)
   grad.addColorStop(0, colA(rings[0].hsl, GRAD_ALPHA[0]))
