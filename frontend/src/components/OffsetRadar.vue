@@ -101,20 +101,34 @@ function draw() {
   const cardColor = css.getPropertyValue("--card").trim()
   const rings = ringData()
 
-  // ---- 左半边：分位等级的半透明背景字（画在最底层） ----
+  // ---- 焦点 CS 与预计等级（背景字点亮 / 中央贴图 / 实线圈共用） ----
+  // 实时模式下两种维度都用当前图的 CS；by cs 模式用选中的 CS
+  const focusCS = props.profile
+    ? (props.profile.focus_cs ?? (props.profile.model === "cs" ? props.profile.value : null))
+    : null
+  let achieved = null
+  if (focusCS != null) {
+    const rr0 = (R * csRadiusPx(focusCS)) / OUTER_PX
+    rings && rings.forEach((r) => {
+      if (r.radius <= rr0) achieved = r
+    })
+  }
+
+  // ---- 左半边：分位等级的半透明背景字（预计等级高亮"点亮"） ----
   if (rings) {
     ctx.textBaseline = "alphabetic"
     const n = rings.length
     ;[...rings].sort((a, b) => a.row - b.row).forEach((r) => {
       const y = CY + (r.row - (n - 1) / 2) * ROW_H
+      const lit = achieved && achieved.g === r.g  // 预计等级：点亮
       // 色块（标识环色，文字用文本色）
-      ctx.fillStyle = colA(r.hsl, 0.85)
+      ctx.fillStyle = colA(r.hsl, lit ? 1 : 0.85)
       ctx.beginPath()
       ctx.roundRect(18, y - 38, 7, 31, 3)
       ctx.fill()
       // 等级贴图（半透明背景字；未加载完成时回退为文字）
       const img = gradeImgs[r.g]
-      ctx.globalAlpha = 0.22
+      ctx.globalAlpha = lit ? 0.95 : 0.22
       if (img && img.complete && img.naturalWidth) {
         const h = (IMG_W * img.naturalHeight) / img.naturalWidth
         ctx.drawImage(img, 30, y - 52, IMG_W, h)
@@ -124,10 +138,10 @@ function draw() {
         ctx.fillStyle = textColor
         ctx.fillText(r.g, 32, y - 6)
       }
-      // cs 值（半透明）
+      // cs 值（半透明；点亮行同样提亮）
       ctx.font = "21px system-ui, sans-serif"
       ctx.fillStyle = mutedColor
-      ctx.globalAlpha = 0.45
+      ctx.globalAlpha = lit ? 0.9 : 0.45
       ctx.fillText(`cs${minCs(r.px).toFixed(1)} (p${r.p})`, 33, y + 42)
       ctx.globalAlpha = 1
     })
@@ -179,19 +193,6 @@ function draw() {
   ctx.textBaseline = "alphabetic"
   ctx.fillText("0px", CX, CY - 12)
   if (!rings) return
-
-  // ---- 焦点 CS 与预计等级（供中央贴图与实线圈共用） ----
-  // 实时模式下两种维度都用当前图的 CS；by cs 模式用选中的 CS
-  const focusCS = props.profile
-    ? (props.profile.focus_cs ?? (props.profile.model === "cs" ? props.profile.value : null))
-    : null
-  let achieved = null
-  if (focusCS != null) {
-    const rr0 = (R * csRadiusPx(focusCS)) / OUTER_PX
-    rings.forEach((r) => {
-      if (r.radius <= rr0) achieved = r
-    })
-  }
 
   // ---- 色环：连续色变填充（D→S 由径向渐变连续过渡，无分段描边） ----
   const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, R)
