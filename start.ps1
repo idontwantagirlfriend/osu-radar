@@ -1,4 +1,4 @@
-# osu-radar 一键启动（Windows PowerShell）
+﻿# osu-radar 一键启动（Windows PowerShell）
 #   .\start.ps1 stop    停止运行中的服务（按 data/server.pid）
 #   $env:SKIP_INGEST=1  跳过增量导入，直接起服务
 #   $env:NO_BROWSER=1   不自动打开浏览器
@@ -10,8 +10,9 @@ $PidFile = "data/server.pid"
 
 # Python 入口：优先 uv（自动 .venv），缺失回退系统 python
 function Invoke-Py {
+    # Windows 的 venv 没有 python3.exe（MS Store 存根会截胡），统一用 python
     if (Get-Command uv -ErrorAction SilentlyContinue) {
-        uv run python3 @args
+        uv run python @args
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
         python @args
     } else {
@@ -56,8 +57,5 @@ if (-not (Test-Path frontend/dist/index.html)) {
     Write-Warning "frontend/dist 缺失 —— cd frontend; npm install; npm run build"
 }
 
-Write-Host ""
-Write-Host "osu-radar: http://127.0.0.1:$Port"
-
-# 启动后自动打开浏览器 "/" 配置页（NO_BROWSER=1 时 server.py 跳过）
-Invoke-Py server.py --port $Port
+# 浏览器由 server.py 在确定实际端口后自动打开（uvicorn 风格通告见控制台）
+Invoke-Py server.py

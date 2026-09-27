@@ -36,6 +36,8 @@ Windows运行：
 ./start.ps1 start
 ```
 
+首次运行需要冷启动1-5分钟全量分析历史replay，分析结果会缓存至sqlite数据库，后续只需热启数秒。
+
 lazer不一定暴露内部replay因此迁移无望。
 
 ## 隐私

@@ -33,6 +33,8 @@ osu!lazer does not necessarily expose its internal replays, so porting to it is 
 
 Either script bootstraps `.env` from `.env.example`, runs an incremental ingest of your replays (already-analyzed ones are skipped, so repeat runs take seconds), and serves the UI. Environment variables: `PORT` (default 8000), `SKIP_INGEST=1` to skip the ingest, `NO_BROWSER=1` to not open a browser.
 
+The first run is expected to take longer — a few minutes — because your entire replay history is analyzed from scratch. The results are cached, so later runs only process new replays and start in seconds.
+
 Paths are configured in the web UI at `/` — the osu! install dir, the tosu binary, the replay dir and the Songs dir — and are written to `.env`. Saving them takes effect immediately and kicks off a background ingest. Leave `OSU_DIR` empty and a running tosu instance is used to auto-detect the osu! installation instead.
 
 Once configured:
