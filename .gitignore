@@ -1,0 +1,9 @@
+r/
+data/
+frontend/node_modules/
+
+.venv
+.claude
+__pycache__
+tosu/
+.env

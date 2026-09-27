@@ -1,0 +1,2 @@
+# 零第三方依赖：全部使用 Python 标准库（lzma / zlib / sqlite3 / struct / http.server 等）
+# 依赖为空，保留此文件供 uv / pip 工作流引用。
