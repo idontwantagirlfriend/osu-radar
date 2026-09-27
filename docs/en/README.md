@@ -1,5 +1,7 @@
 # osu! Radar — modeling a player's aim from their past replays
 
+English | [中文](../../README.md)
+
 > osu! stable only, for now.
 
 A simple conditional-probability model that estimates where a player's aim lands on a given map, and turns that into a rank. The result is drawn as a radar chart plus a rank on a web page, small enough to be dropped into OBS as a browser source.
@@ -12,10 +14,10 @@ The estimate is meant to be read like this:
 >
 > **On maps with CS = y, the player will reach n% of the objects** (pooled by CS)
 
-"Reaching" an object means the cursor was still inside that object's hit circle at the moment it had to be hit. tosu is used to read the map currently loaded in osu!, which is what fills in x and y for you — in live mode the overlay follows whatever you are playing, applies the active mods, and updates itself.
+"Reaching" an object means the cursor was still inside that object's hit circle at that object's hit time. tosu is used to read the map currently loaded in osu!, which is what fills in x and y for you — in live mode the overlay follows whatever you are playing, applies the active mods, and updates itself.
 
 - Samples are weighted per object, so a long map simply contributes more of them.
-- EZ/HR/DT/HT are folded into *effective* CS/AR first, so a DT/EZ play lands in the same bucket as a modless play of the same map.
+- EZ/HR/DT/HT are folded into *effective* CS/AR first (a rate change shifts AR by scaling the approach time), so plays are pooled by the difficulty you actually faced rather than by the map's base difficulty.
 - These are statistical conclusions only: n% is an expected value, and no average promises anything about any single play.
 
 ## Installation

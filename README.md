@@ -1,5 +1,7 @@
 # osu! Radar：基于历史replay给玩家aim建模
 
+中文 | [English](docs/en/README.md)
+
 > 暂时只支持osu! stable。
 
 使用简单的条件概率模型，估计玩家在某一map上的aim偏移分布及rank。估计结果会以网页形式绘制雷达图+rank，可在obs中打开。

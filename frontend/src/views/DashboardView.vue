@@ -1,4 +1,5 @@
 <script setup>
+document.title = "osu! Radar | debug"
 import { ref, computed, watch, onMounted, onUnmounted } from "vue"
 import OffsetRadar from "../components/OffsetRadar.vue"
 import { refreshTheme } from "../theme"
@@ -214,7 +215,7 @@ onMounted(() => {
 <template>
   <div class="page">
     <header>
-      <h1>osu-radar · 偏移雷达</h1>
+      <h1>osu! Radar | debug</h1>
       <p class="sub">
         命中时刻光标偏移分布 — 按等效 {{ bucketLabel[model] }} 分桶加权（p50–p99.9，单位 osu!pixel）
       </p>

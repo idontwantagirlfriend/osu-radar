@@ -131,8 +131,11 @@ def backfill_played_at(con):
 
 # ---------------------------------------------------------------- beatmap index
 
-def build_beatmap_index():
-    """md5 -> path for every .osu under SONGS_DIRS. Incremental via stat cache."""
+def build_beatmap_index(force=False):
+    """md5 -> path for every .osu under SONGS_DIRS.
+    两级增量：根目录条目列表不变 -> 直接跳过（drvfs 上 13k 次 stat 很慢）；
+    变了才全量 walk，walk 内部再按 stat 缓存跳过哈希。
+    返回 (maps, 文件数, 新哈希数, quick)。"""
     cache = {"stat": {}, "maps": {}}
     if os.path.exists(INDEX_PATH):
         try:
@@ -141,6 +144,20 @@ def build_beatmap_index():
         except Exception:
             pass
     stat, maps = cache.get("stat", {}), cache.get("maps", {})
+    old_roots = cache.get("roots", {})
+
+    # 快速新鲜度检查：各根目录的一级条目列表（Songs 的图集文件夹 / maps 的 .osu）
+    roots = {}
+    if not force:
+        for d in SONGS_DIRS:
+            if not os.path.isdir(d):
+                continue
+            try:
+                roots[d] = sorted(os.listdir(d))
+            except OSError:
+                pass
+        if maps and roots and old_roots and roots == old_roots:
+            return maps, 0, 0, True  # quick：根未变，跳过全量扫描
 
     files = []
     for d in SONGS_DIRS:
@@ -171,9 +188,16 @@ def build_beatmap_index():
 
     # rebuild md5->path: start from scratch so deleted files disappear
     maps.update(new_maps)
+    if not roots or force:
+        for d in SONGS_DIRS:
+            if os.path.isdir(d):
+                try:
+                    roots[d] = sorted(os.listdir(d))
+                except OSError:
+                    pass
     with open(INDEX_PATH, "w") as f:
-        json.dump({"stat": stat, "maps": maps}, f)
-    return maps, len(files), hashed
+        json.dump({"stat": stat, "maps": maps, "roots": roots}, f)
+    return maps, len(files), hashed, False
 
 # ---------------------------------------------------------------- beatmap cache
 
@@ -230,8 +254,9 @@ def file_md5(path):
             h.update(chunk)
     return h.hexdigest()
 
-def analyze_pending(con, index, limit=None):
+def analyze_pending(con, index, limit=None, index_quick=False):
     cur = con.cursor()
+    full_scan_done = not index_quick  # 快速检查的索引可能陈旧，缺图时全量重建一次
     done_md5 = {r[0] for r in cur.execute("SELECT replay_md5 FROM replays")}
     files = sorted(os.listdir(REPLAY_DIR))
     files = [f for f in files if f.lower().endswith(".osr")]
@@ -278,6 +303,13 @@ def analyze_pending(con, index, limit=None):
 
         bm_md5 = rep["beatmap_md5"]
         bm = get_beatmap(bm_md5, index)
+        if bm is None and not full_scan_done:
+            # 索引走了快速检查且没找到图：全量重建一次再试（覆盖图集内部更新的情况）
+            full_scan_done = True
+            print("  beatmap miss -> full index rescan ...")
+            fresh, _, _, _ = build_beatmap_index(force=True)
+            index.update(fresh)
+            bm = get_beatmap(bm_md5, index)
         if bm is None:
             record("missing_beatmap", "no local .osu with this md5", rep, bm_md5)
             missing += 1
@@ -405,8 +437,11 @@ def main():
         print(f"  copied {n} new .osr")
 
     print("[2/4] building beatmap index (incremental) ...")
-    index, total, hashed = build_beatmap_index()
-    print(f"  {total} .osu files, {hashed} newly hashed, {len(index)} maps indexed")
+    index, total, hashed, quick = build_beatmap_index()
+    if quick:
+        print(f"  quick check ok（Songs 根目录未变，跳过全量扫描；{len(index)} maps）")
+    else:
+        print(f"  {total} .osu files, {hashed} newly hashed, {len(index)} maps indexed")
 
     print("[3/4] backfilling play timestamps ...")
     n = backfill_played_at(con)

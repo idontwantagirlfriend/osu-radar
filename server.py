@@ -587,6 +587,30 @@ class Handler(BaseHTTPRequestHandler):
         self._send_file(full)
 
 
+def _open_browser(url):
+    """WSL 下 webbrowser/xdg-open 会退化为 gio 并报 Operation not supported，
+    优先用 Windows 侧浏览器；原生平台走 webbrowser。输出全部丢弃。"""
+    import shutil
+    import subprocess
+    devnull = subprocess.DEVNULL
+    try:
+        if shutil.which("wslview"):
+            subprocess.Popen(["wslview", url], stdout=devnull, stderr=devnull)
+            return
+        try:
+            with open("/proc/version") as f:
+                is_wsl = "microsoft" in f.read().lower()
+        except OSError:
+            is_wsl = False
+        if is_wsl and shutil.which("explorer.exe"):
+            # explorer.exe 打开默认浏览器（即使成功也返回非零，忽略）
+            subprocess.Popen(["explorer.exe", url], stdout=devnull, stderr=devnull)
+            return
+        webbrowser.open(url)
+    except Exception:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -599,7 +623,7 @@ def main():
     url = f"http://{args.host}:{args.port}/"
     print(f"osu-radar: {url}  (dist: {DIST_DIR})")
     if os.environ.get("NO_BROWSER") != "1" and not args.no_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.5, lambda: _open_browser(url)).start()
     srv.serve_forever()
 
 

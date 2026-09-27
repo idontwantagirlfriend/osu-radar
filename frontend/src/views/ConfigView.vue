@@ -5,6 +5,8 @@ import { theme, refreshTheme, iconUrl } from "../theme"
 
 const GRADE_ORDER = ["S", "A", "B", "C", "D"]
 
+document.title = "osu! Radar | config"
+
 const paths = reactive({ osu: "", tosu: "", replays: "", songs: "" })
 const status = reactive({ osu: "", tosu: "", replays: "", songs: "" })
 const ready = ref(false)

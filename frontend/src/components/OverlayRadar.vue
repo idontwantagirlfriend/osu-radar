@@ -7,6 +7,8 @@ const props = defineProps({
   model: { type: String, required: true }, // 'ar' | 'cs'（来自路由 /ar /cs）
 })
 
+document.title = `osu! Radar | ${props.model === "ar" ? "AR" : "CS"} mode`
+
 // 全部配置走 URL 传参（OBS browser source 场景：改参数 = 改 URL）
 const q = new URLSearchParams(window.location.search)
 const cfg = {
