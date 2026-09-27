@@ -295,11 +295,12 @@ def query_profile(model, value, bucket, player=None, mods=None, no_mods=None, mi
     n_objects = sum(n for _, _, n in rows)
     pct = {p: histogram_percentile(merged, p) for p in PERCENTILES}
     return {
-        "model": model, "value": value, "bucket": bucket,
+        "model": model, "value": value, "bucket": bucket, "sr": sr,
         "n_replays": len(rows), "n_objects": n_objects,
         "percentiles": pct,
         "min_cs": {p: offset_to_cs(v) for p, v in pct.items()},
         "hist": merged,
+        "sample": _sample_replays(con, where, params, col, lo, hi),
     }
 
 
@@ -328,6 +329,40 @@ def _tosu_url():
                 else:
                     _TOSU_FAIL_AT[0] = time.time()
     return _TOSU_CACHE[0] or ""
+
+_META_CACHE = {}  # md5 -> (title, version)
+
+
+def _map_meta(md5):
+    """谱面标题/难度名（轻量缓存，用于样本清单展示）。"""
+    if md5 in _META_CACHE:
+        return _META_CACHE[md5]
+    path = _index_path(md5)
+    if not path:
+        return None
+    try:
+        bm = parse_beatmap(path)
+        meta = (bm.metadata.get("Title"), bm.metadata.get("Version"))
+    except Exception:
+        return None
+    _META_CACHE[md5] = meta
+    return meta
+
+
+def _sample_replays(con, where, params, col, lo, hi, limit=10):
+    """构成当前画像的最近 N 个 replay（预测透明度）。"""
+    rows = con.execute(
+        f"SELECT r.beatmap_md5, r.mods, r.sr_mod, r.n_objects, r.played_at"
+        f" FROM offset_hist h JOIN replays r ON r.id = h.replay_id"
+        f" WHERE h.{col} >= ? AND h.{col} < ? AND {where}"
+        f" ORDER BY r.played_at DESC LIMIT ?", [lo, hi] + params + [limit]).fetchall()
+    out = []
+    for md5, mods, sr, n, played in rows:
+        title, version = _map_meta(md5) or ("?", "?")
+        out.append({"title": title, "version": version, "mods": mods,
+                    "sr": sr, "objects": n, "played_at": played})
+    return out
+
 
 def _index_path(md5):
     try:

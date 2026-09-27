@@ -38,6 +38,8 @@ loadIcons()
 // 左半边背景字的行布局与命中区（onMove 与 draw 共用）；整体放大至 175%
 const ROW_H = 112
 const LABEL_BOX = { x0: 14, x1: 176, halfH: 54 }
+// 右下角估算基数（N replays / M objects 两行）的命中区
+const EVIDENCE_BOX = { x0: 620, y0: 640 - 70, x1: 764, y1: 640 }
 
 const canvasRef = ref(null)
 const mql = window.matchMedia("(prefers-color-scheme: dark)")
@@ -228,6 +230,17 @@ function draw() {
     }
   }
 
+  // ---- 中心 rank 贴图下方（CS5 环以内）：post-mod SR ----
+  if (props.profile.sr != null) {
+    ctx.font = `600 ${IMG_W}px system-ui, sans-serif`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "alphabetic"
+    ctx.fillStyle = mutedColor
+    ctx.globalAlpha = 0.85
+    ctx.fillText(Number(props.profile.sr).toFixed(2), CX, CY + 210)
+    ctx.globalAlpha = 1
+  }
+
   // ---- 等级虚线环（常显；更严的等级容纳分位更高、半径在外） ----
   rings.forEach((r, i) => {
     const hovered = hover.value && hover.value.ring === i
@@ -254,7 +267,44 @@ function draw() {
   }
 
   // ---- 悬停提示 ----
-  if (hover.value) {
+  if (hover.value && hover.value.evidence) {
+    const sample = props.profile.sample || []
+    const trunc = (t, n) => (t && t.length > n ? t.slice(0, n) + "..." : t || "")
+    const rows = sample.map((s) => [
+      `${trunc(s.title, 30)} [${trunc(s.version, 20)}]`,
+      `${(s.mods || "NM").replace(/\+/g, "")}${s.sr != null ? ` · ${Number(s.sr).toFixed(2)}★` : ""} · ${s.objects.toLocaleString()}obj · ${(s.played_at || "").slice(0, 10)}`,
+    ])
+    ctx.font = "12px system-ui, sans-serif"
+    const wRow = Math.max(...rows.map(([t1, t2]) => Math.max(
+      ctx.measureText(t1).width, ctx.measureText(t2).width))) + 28
+    const w = Math.min(W - 16, Math.max(280, wRow))
+    const h = 34 + rows.length * 34 + 8
+    let x = Math.min(W - 8 - w, Math.max(8, hover.value.x - w / 2))
+    let y = Math.min(H - 8 - h, Math.max(8, hover.value.y - h - 12))
+    ctx.fillStyle = cardColor
+    ctx.strokeStyle = ringColor
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, 8)
+    ctx.fill()
+    ctx.stroke()
+    ctx.textAlign = "left"
+    ctx.textBaseline = "alphabetic"
+    ctx.font = "600 13px system-ui, sans-serif"
+    ctx.fillStyle = textColor
+    ctx.fillText(`构成样本 · 最近 ${rows.length} / ${props.profile.n_replays} 个 replay`, x + 14, y + 22)
+    rows.forEach(([t1, t2], j) => {
+      const ry = y + 42 + j * 34
+      ctx.font = "600 12px system-ui, sans-serif"
+      ctx.fillStyle = textColor
+      ctx.fillText(t1, x + 14, ry)
+      ctx.font = "11px system-ui, sans-serif"
+      ctx.fillStyle = mutedColor
+      ctx.fillText(t2, x + 14, ry + 15)
+    })
+    return
+  }
+  if (hover.value && hover.value.ring != null) {
     const r = rings[hover.value.ring]
     const lines = [
       [`${r.g} (p${r.p})`, textColor, "600 14px system-ui, sans-serif"],
@@ -297,6 +347,14 @@ function onMove(e) {
   if (!rings) return
   const n = rings.length
 
+  // 0) 悬停右下角估算基数 → 弹出构成样本（最近 10 个 replay）
+  if (x >= EVIDENCE_BOX.x0 && x <= EVIDENCE_BOX.x1
+      && y >= EVIDENCE_BOX.y0 && y <= EVIDENCE_BOX.y1
+      && props.profile.sample && props.profile.sample.length) {
+    hover.value = { x, y, evidence: true }
+    return
+  }
+
   // 1) 悬停左半边背景字 → 同样高亮对应的分位环（行号按显示序 S→D）
   const rowI = Math.round((y - CY) / ROW_H + (n - 1) / 2)
   if (rowI >= 0 && rowI < n && x >= LABEL_BOX.x0 && x <= LABEL_BOX.x1
@@ -307,6 +365,8 @@ function onMove(e) {
       return
     }
   }
+
+  if (hover.value && hover.value.evidence) hover.value = null  // 移出估算基数区即清除
 
   // 2) 悬停环位置 → 最近的分位半径
   const d = Math.hypot(x - CX, y - CY)

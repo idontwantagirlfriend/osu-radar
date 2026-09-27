@@ -71,6 +71,8 @@ And by restricting the past replays to a band of AR or CS, you get the aim offse
 
 **On top of the AR/CS pooling, the past replays are further restricted to maps whose post-mod SR is within ±0.5★ of the current map**: modern maps cluster around AR 9–10 and CS 4–5, so AR/CS alone cannot capture how much the map's placement demands — the AR 9.8–10 ceiling spans everything from 7★ to 10★, and estimating one and the same rank across all of it is plainly unreasonable.
 
+> **Side note**: SR values from rosu-pp run systematically below what stable displays (the official algorithm has kept drifting upward since this snapshot). All values in this model share one source, so the ±0.5★ filter remains like-for-like; the algorithm stays as-is for now.
+
 ## Reading the radar
 
 Each dashed ring is one rank, drawn at the offset percentile that rank demands (S = p100, A = p90, B = p80, C = p70, D = p60). The rings are mapped onto circle radii, so the scale on the left is literally CS: the solid ring is the effective CS of the map being played (or the CS you are inspecting in the CS model), and the ghosted rank in the middle is the strictest rank whose ring still fits inside it — i.e. the rank you would be expected to hold at that CS.
