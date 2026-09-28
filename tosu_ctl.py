@@ -161,7 +161,7 @@ def stop():
 
 
 def _to_wsl_path(p):
-    """D:\\Misc\\osu! -> /mnt/d/Misc/osu!（仅 WSL 场景需要）。"""
+    """D:\\osu! -> /mnt/d/osu!（仅 WSL 场景需要）。"""
     if not p:
         return None
     p = p.replace("\\", "/")

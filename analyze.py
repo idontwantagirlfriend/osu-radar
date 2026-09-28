@@ -9,11 +9,12 @@
 import datetime
 import lzma
 import math
+import os
 import struct
 import sys
 import zlib
 
-sys.path.insert(0, "/home/devman/dev/osu-radar")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osu_core import parse_beatmap, stacked_position, ar_to_preempt_ms, scale_from_cs
 
 # ---------------------------------------------------------------- replay (.osr)

@@ -45,8 +45,8 @@ def _maybe_wsl_path(p):
 
 
 def resolve_dirs():
-    """路径解析优先级：CLI > OSU_SCORES_DIR/OSU_SONGS_DIR（绝对）> OSU_DIR+相对 > 默认。
-    .env 的 OSU_DIR 留空 = 自动检测（交给 tosu discover / 默认路径）。"""
+    """路径解析优先级：CLI > OSU_SCORES_DIR/OSU_SONGS_DIR（绝对）> OSU_DIR+相对 > None。
+    全都未配置时返回 (None, [maps/])，由 main() 经 tosu 自动探测补齐（需 osu! 在运行）。"""
     source = os.environ.get("OSU_SCORES_DIR", "").strip() or None
     songs = None
     songs_env = os.environ.get("OSU_SONGS_DIR", "").strip() or None
@@ -60,11 +60,8 @@ def resolve_dirs():
                      or "Songs")
         source = source or os.path.join(osu_dir, *filter(None, replays_rel.split("/")))
         songs = songs or [os.path.join(osu_dir, *filter(None, songs_rel.split("/")))]
-    if not source:
-        source = "/mnt/d/Misc/Game Library/osu!/Data/r"  # 本机默认
-    if not songs:
-        songs = ["/mnt/d/Misc/Game Library/osu!/Songs"]
-    return _maybe_wsl_path(source), [_maybe_wsl_path(s) for s in songs] + [os.path.join(ROOT, "maps")]
+    return (_maybe_wsl_path(source),
+            [_maybe_wsl_path(s) for s in (songs or [])] + [os.path.join(ROOT, "maps")])
 
 
 SOURCE_DIR, SONGS_DIRS = resolve_dirs()
@@ -282,6 +279,9 @@ def copy_new_replays(limit=None):
     """Copy .osr files from the osu! scores dir into the project r/ dir.
     The source files are only touched by the copy itself — every later step
     (hashing, parsing, analysis) works exclusively on the local copies."""
+    if not SOURCE_DIR:
+        print("  scores dir 未配置（.env / 配置页 / --source），skipping copy")
+        return 0
     if not os.path.isdir(SOURCE_DIR):
         print(f"  scores dir not found: {SOURCE_DIR} (set OSU_SCORES_DIR / --source; skipping copy)")
         return 0
@@ -472,7 +472,7 @@ def main():
         SONGS_DIRS = [args.songs, os.path.join(ROOT, "maps")]
 
     # 目录缺失且未显式配置时，经 tosu 自动定位 osu! 安装（需 osu! 正在运行）
-    if (not os.path.isdir(SOURCE_DIR)
+    if ((not SOURCE_DIR or not os.path.isdir(SOURCE_DIR))
             and not os.environ.get("OSU_SCORES_DIR") and not args.source):
         try:
             import tosu_ctl
